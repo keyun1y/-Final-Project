@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import matplotlib.pyplot as plt
+import io
+import base64
 
 # 確保從你的 engine.py 匯入所有核心功能
 from engine import ModelDatabaseLoader, LinearStaticSolver, ResultVisualizer, export_extreme_values_to_db
@@ -10,6 +12,44 @@ st.set_page_config(page_title="二維結構 OOP 分析系統", layout="wide")
 st.title("🏗️ 二維結構分析系統 ")
 
 DB_PATH = "structure_v2.db"
+
+# ==========================================
+# 🚨 新增：自動修復與初始化資料庫功能
+# ==========================================
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    # 檢查資料庫裡面有沒有 Nodes 這個表格
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Nodes'")
+    if not cursor.fetchone():
+        # 如果找不到，代表是全新或被刪除的空資料庫，自動寫入預設的「ㄇ字型剛構架」資料
+        pd.DataFrame([
+            {"node_id": 1, "x_coord": 0, "y_coord": 0, "rx": 1, "ry": 1, "rmz": 1},
+            {"node_id": 2, "x_coord": 0, "y_coord": 4, "rx": 0, "ry": 0, "rmz": 0},
+            {"node_id": 3, "x_coord": 5, "y_coord": 4, "rx": 0, "ry": 0, "rmz": 0},
+            {"node_id": 4, "x_coord": 5, "y_coord": 0, "rx": 1, "ry": 1, "rmz": 1}
+        ]).to_sql("Nodes", conn, index=False)
+        
+        pd.DataFrame([
+            {"id": 1, "name": "Steel", "E_value": 2e11, "I_value": 0.0005, "A_value": 0.02}
+        ]).to_sql("Materials", conn, index=False)
+        
+        pd.DataFrame([
+            {"element_id": 1, "node_i": 1, "node_j": 2, "material_id": 1},
+            {"element_id": 2, "node_i": 2, "node_j": 3, "material_id": 1},
+            {"element_id": 3, "node_i": 3, "node_j": 4, "material_id": 1}
+        ]).to_sql("Elements", conn, index=False)
+        
+        pd.DataFrame([
+            {"load_id": 1, "target_type": "NODE", "target_id": 2, "fx": 50000, "fy": 0, "mz": 0}
+        ]).to_sql("Loads", conn, index=False)
+    conn.close()
+
+# 網頁啟動時，強制執行一次檢查！
+init_db()
+# ==========================================
+
+
 
 # --- 輔助函式：讀取與寫入資料庫 ---
 def load_data(table_name):
@@ -124,8 +164,28 @@ with col_result:
 
                     st.subheader("彎矩圖 (M-D)")
                     vis.plot_internal_force_diagram(U_global, element_loads, force_type='moment', scale=0.00005)
-                    st.pyplot(plt.gcf())
+                    
+                    # 🌟 步驟 2：利用 Base64 技術把圖片轉成文字
+                    fig = plt.gcf()
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format="png", bbox_inches='tight', transparent=False, facecolor='white')
+                    buf.seek(0)
+                    img_b64 = base64.b64encode(buf.read()).decode()
+                    data_url = f"data:image/png;base64,{img_b64}" # 這就是我們要存進資料庫的圖片文字
+                    
+                    # 顯示在網頁上並清除畫布
+                    st.pyplot(fig)
                     plt.clf()
+
+                    # 🌟 步驟 3：呼叫引擎，把數字跟「圖片文字(data_url)」一起存進資料庫
+                    export_extreme_values_to_db(
+                        db_path=DB_PATH,
+                        case_name=case_name,
+                        elements=elements,
+                        U_global=U_global,
+                        element_loads=element_loads,
+                        image_url=data_url  # 傳入圖片！
+                    )
 
             except Exception as e:
                 st.error(f"❌ 運算發生錯誤：{e}")
@@ -150,15 +210,20 @@ try:
          
          # 重新調整欄位順序並精簡呈現
          df_display = df_history[['id', 'case_name', '最大彎矩 (kN-m)', '最大剪力 (kN)']]
-         st.dataframe(df_display, use_container_width=True)
-         st.markdown("###") # 加一點空白間距
-         csv = df_display.to_csv(index=False).encode('utf-8-sig')
-         st.download_button(
-             label="📥 下載完整歷史分析報告 (CSV)",
-             data=csv,
-             file_name='Structural_Analysis_Report.csv',
-             mime='text/csv',
-             use_container_width=True
+         df_display = df_history[['id', 'case_name', '最大彎矩 (kN-m)', '最大剪力 (kN)', 'image_url']]
+         
+         # 使用 ImageColumn 讓網頁把文字解析回圖片
+         st.dataframe(
+             df_display,
+             column_config={
+                 "id": "編號",
+                 "case_name": "案例名稱",
+                 "image_url": st.column_config.ImageColumn(
+                     "彎矩圖預覽 (M-D)", help="歷次分析的彎矩圖形"
+                 )
+             },
+             use_container_width=True,
+             hide_index=True
          )
     else:
          st.info("💡 目前資料表裡還沒有歷史紀錄喔！請輸入模型並按下分析按鈕。")

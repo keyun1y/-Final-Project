@@ -282,32 +282,39 @@ class ResultVisualizer:
 # ==========================================\n
 # 5. 資料庫匯出函式 (新增至 engine.py 最後面)\n
 # ==========================================\n
-def export_extreme_values_to_db(db_path: str, case_name: str, elements: list, U_global: np.ndarray, element_loads: list):
-    """計算全結構的最大剪力與彎矩，並存回資料庫 (純新增模式)"""
+def export_extreme_values_to_db(db_path: str, case_name: str, elements: list, U_global: np.ndarray, element_loads: list, image_url: str = ""):
+    """計算極端值並將數據與 Base64 圖片存回資料庫"""
     max_V = 0.0
     max_M = 0.0
     
-    # 1. 尋找全結構的極端值
+    # 1. 尋找極端值
     for el in elements:
         f = el.compute_internal_forces(U_global, element_loads)
         el_max_V = max(abs(f[1]), abs(f[4]))
         el_max_M = max(abs(f[2]), abs(f[5]))
-        
         if el_max_V > max_V: max_V = el_max_V
         if el_max_M > max_M: max_M = el_max_M
         
-    # 2. 寫入 SQLite 資料庫 (保留所有紀錄，不覆蓋)
+    # 2. 寫入 SQLite (自動確認表格結構)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+    
+    # 確保資料表存在，並且包含 image_url 欄位
     cursor.execute('''
-        INSERT INTO Analysis_Results (case_name, max_moment, max_shear)
-        VALUES (?, ?, ?)
-    ''', (case_name, max_M, max_V))
+        CREATE TABLE IF NOT EXISTS Analysis_Results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_name TEXT,
+            max_moment REAL,
+            max_shear REAL,
+            image_url TEXT
+        )
+    ''')
+    
+    # 寫入最新紀錄
+    cursor.execute('''
+        INSERT INTO Analysis_Results (case_name, max_moment, max_shear, image_url)
+        VALUES (?, ?, ?, ?)
+    ''', (case_name, max_M, max_V, image_url))
     
     conn.commit()
     conn.close()
-    
-    print("\n💾 分析結果已成功新增至資料庫！")
-    print(f"   ▶ 案例名稱：{case_name}")
-    print(f"   ▶ 全系統最大剪力：{max_V/1000:.2f} kN")
-    print(f"   ▶ 全系統最大彎矩：{max_M/1000:.2f} kN-m")

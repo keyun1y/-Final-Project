@@ -22,27 +22,27 @@ def init_db():
     # 檢查資料庫裡面有沒有 Nodes 這個表格
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Nodes'")
     if not cursor.fetchone():
-        # 如果找不到，代表是全新或被刪除的空資料庫，自動寫入預設的「ㄇ字型剛構架」資料
+        # 💡 加上 if_exists="replace"，徹底解決 Table already exists 的報錯
         pd.DataFrame([
             {"node_id": 1, "x_coord": 0, "y_coord": 0, "rx": 1, "ry": 1, "rmz": 1},
             {"node_id": 2, "x_coord": 0, "y_coord": 4, "rx": 0, "ry": 0, "rmz": 0},
             {"node_id": 3, "x_coord": 5, "y_coord": 4, "rx": 0, "ry": 0, "rmz": 0},
             {"node_id": 4, "x_coord": 5, "y_coord": 0, "rx": 1, "ry": 1, "rmz": 1}
-        ]).to_sql("Nodes", conn, index=False)
+        ]).to_sql("Nodes", conn, index=False, if_exists="replace")
         
         pd.DataFrame([
             {"id": 1, "name": "Steel", "E_value": 2e11, "I_value": 0.0005, "A_value": 0.02}
-        ]).to_sql("Materials", conn, index=False)
+        ]).to_sql("Materials", conn, index=False, if_exists="replace")
         
         pd.DataFrame([
             {"element_id": 1, "node_i": 1, "node_j": 2, "material_id": 1},
             {"element_id": 2, "node_i": 2, "node_j": 3, "material_id": 1},
             {"element_id": 3, "node_i": 3, "node_j": 4, "material_id": 1}
-        ]).to_sql("Elements", conn, index=False)
+        ]).to_sql("Elements", conn, index=False, if_exists="replace")
         
         pd.DataFrame([
             {"load_id": 1, "target_type": "NODE", "target_id": 2, "fx": 50000, "fy": 0, "mz": 0}
-        ]).to_sql("Loads", conn, index=False)
+        ]).to_sql("Loads", conn, index=False, if_exists="replace")
     conn.close()
 
 # 網頁啟動時，強制執行一次檢查！
